@@ -5,6 +5,7 @@ import com.hairtrack.transformation.entity.Photo;
 import com.hairtrack.transformation.entity.User;
 import com.hairtrack.transformation.repository.UserRepository;
 import com.hairtrack.transformation.service.PhotoService;
+import com.hairtrack.transformation.util.DateUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -12,6 +13,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,18 +31,20 @@ public class PhotoController {
             @RequestParam(value = "angle", defaultValue = "FRONT") Photo.PhotoAngle angle,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
-        UUID userId = getUserId(userDetails);
-        Photo photo = photoService.uploadPhoto(userId, file, angle);
-        return ResponseEntity.ok(toResponse(photo, userId));
+        User user = getUser(userDetails);
+        Photo photo = photoService.uploadPhoto(user.getId(), file, angle);
+        return ResponseEntity.ok(toResponse(photo, user.getTransplantDate()));
     }
 
     @GetMapping
     public ResponseEntity<List<PhotoResponse>> getMyPhotos(
             @AuthenticationPrincipal UserDetails userDetails
     ) {
-        UUID userId = getUserId(userDetails);
-        List<PhotoResponse> photos = photoService.getUserPhotos(userId).stream()
-                .map(p -> toResponse(p, userId))
+        User user = getUser(userDetails);
+        LocalDate transplantDate = user.getTransplantDate();
+
+        List<PhotoResponse> photos = photoService.getUserPhotos(user.getId()).stream()
+                .map(p -> toResponse(p, transplantDate))
                 .toList();
         return ResponseEntity.ok(photos);
     }
@@ -50,8 +54,8 @@ public class PhotoController {
             @PathVariable UUID photoId,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
-        UUID userId = getUserId(userDetails);
-        return ResponseEntity.ok(photoService.getPhotoSignedUrl(photoId, userId));
+        User user = getUser(userDetails);
+        return ResponseEntity.ok(photoService.getPhotoSignedUrl(photoId, user.getId()));
     }
 
     @DeleteMapping("/{photoId}")
@@ -59,24 +63,23 @@ public class PhotoController {
             @PathVariable UUID photoId,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
-        UUID userId = getUserId(userDetails);
-        photoService.deletePhoto(photoId, userId);
+        User user = getUser(userDetails);
+        photoService.deletePhoto(photoId, user.getId());
         return ResponseEntity.noContent().build();
     }
 
-    private UUID getUserId(UserDetails userDetails) {
-        User user = userRepository.findByEmail(userDetails.getUsername())
+    private User getUser(UserDetails userDetails) {
+        return userRepository.findByEmail(userDetails.getUsername())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        return user.getId();
     }
 
-    private PhotoResponse toResponse(Photo photo, UUID userId) {
+    private PhotoResponse toResponse(Photo photo, LocalDate transplantDate) {
         return PhotoResponse.builder()
                 .id(photo.getId())
-                .url(photoService.getPhotoSignedUrl(photo.getId(), userId))
+                .url(photoService.getPhotoSignedUrl(photo.getId(), photo.getUser().getId()))
                 .angle(photo.getAngle())
-                .daysSinceTransplant(photo.getDaysSinceTransplant())
-                .monthsSinceTransplant(photo.getMonthsSinceTransplant())
+                .daysSinceTransplant(DateUtil.daysBetween(transplantDate, photo.getTakenAt()))
+                .monthsSinceTransplant(DateUtil.monthsBetween(transplantDate, photo.getTakenAt()))
                 .takenAt(photo.getTakenAt())
                 .build();
     }

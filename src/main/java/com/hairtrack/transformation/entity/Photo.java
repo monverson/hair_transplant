@@ -27,14 +27,10 @@ public class Photo {
     private User user;
 
     @Column(nullable = false)
-    private String storageUrl;   // S3/R2 URL
+    private String storageUrl;
 
     @Enumerated(EnumType.STRING)
-    private PhotoAngle angle;    // FRONT, TOP, SIDE
-
-    private Integer daysSinceTransplant;
-
-    private Integer monthsSinceTransplant;
+    private PhotoAngle angle;
 
     @CreationTimestamp
     private LocalDateTime takenAt;

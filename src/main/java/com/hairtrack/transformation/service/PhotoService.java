@@ -9,8 +9,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,21 +27,10 @@ public class PhotoService {
 
         String storageKey = storageService.uploadPhoto(file, userId);
 
-        Integer daysSinceTransplant = null;
-        Integer monthsSinceTransplant = null;
-
-        if (user.getTransplantDate() != null) {
-            LocalDate today = LocalDate.now();
-            daysSinceTransplant = (int) ChronoUnit.DAYS.between(user.getTransplantDate(), today);
-            monthsSinceTransplant = (int) ChronoUnit.MONTHS.between(user.getTransplantDate(), today);
-        }
-
         Photo photo = Photo.builder()
                 .user(user)
                 .storageUrl(storageKey)
                 .angle(angle)
-                .daysSinceTransplant(daysSinceTransplant)
-                .monthsSinceTransplant(monthsSinceTransplant)
                 .build();
 
         Photo saved = photoRepository.save(photo);

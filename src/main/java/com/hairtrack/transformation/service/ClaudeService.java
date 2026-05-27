@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hairtrack.transformation.entity.Analysis;
 import com.hairtrack.transformation.entity.Photo;
 import com.hairtrack.transformation.entity.User;
+import com.hairtrack.transformation.util.DateUtil;
 import lombok.Builder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -27,8 +28,6 @@ public class ClaudeService {
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
-
-    private final StorageService storageService;
     @Value("${claude.api.key}")
     private String apiKey;
     @Value("${claude.api.url}")
@@ -45,14 +44,14 @@ public class ClaudeService {
 
         if (mockEnabled) {
             log.info("Mock mode enabled - returning fake analysis");
-            return buildMockAnalysis(photo, language);
+            return buildMockAnalysis(photo, user, language);
         }
 
         return callClaudeApi(photo, user, photoBase64, language);
     }
 
-    private AnalysisResult callClaudeApi(Photo photo, User user, String photoBase64,String language) {
-        String prompt = buildPrompt(photo, user,language);
+    private AnalysisResult callClaudeApi(Photo photo, User user, String photoBase64, String language) {
+        String prompt = buildPrompt(photo, user, language);
 
         Map<String, Object> body = new HashMap<>();
         body.put("model", model);
@@ -88,7 +87,6 @@ public class ClaudeService {
             Map response = restTemplate.postForObject(apiUrl, entity, Map.class);
             String analysisText = extractText(response);
 
-            // JSON parse et
             return parseClaudeResponse(analysisText);
 
         } catch (Exception e) {
@@ -99,7 +97,6 @@ public class ClaudeService {
 
     private AnalysisResult parseClaudeResponse(String jsonText) {
         try {
-            // Claude bazen markdown code block içinde döner (```json ... ```), temizle
             String cleaned = jsonText.trim();
             if (cleaned.startsWith("```json")) {
                 cleaned = cleaned.substring(7);
@@ -125,7 +122,6 @@ public class ClaudeService {
                     .build();
         } catch (Exception e) {
             log.error("Failed to parse Claude response: {}", jsonText, e);
-            // Fallback: parse edemezsek raw text'i recommendation olarak ver
             return AnalysisResult.builder()
                     .densityScore(0.0)
                     .stageAssessment("Parse error - check raw analysis")
@@ -136,9 +132,12 @@ public class ClaudeService {
         }
     }
 
-    private AnalysisResult buildMockAnalysis(Photo photo, String language) {
-        Integer months = photo.getMonthsSinceTransplant() != null ? photo.getMonthsSinceTransplant() : 0;
-        Integer days = photo.getDaysSinceTransplant() != null ? photo.getDaysSinceTransplant() : 0;
+    private AnalysisResult buildMockAnalysis(Photo photo, User user, String language) {
+        Integer monthsRaw = DateUtil.monthsBetween(user.getTransplantDate(), photo.getTakenAt());
+        Integer daysRaw = DateUtil.daysBetween(user.getTransplantDate(), photo.getTakenAt());
+
+        int months = monthsRaw != null ? monthsRaw : 0;
+        int days = daysRaw != null ? daysRaw : 0;
 
         boolean isTurkish = "tr".equalsIgnoreCase(language);
 
@@ -266,6 +265,12 @@ public class ClaudeService {
     }
 
     private String buildPrompt(Photo photo, User user, String language) {
+        Integer daysRaw = DateUtil.daysBetween(user.getTransplantDate(), photo.getTakenAt());
+        Integer monthsRaw = DateUtil.monthsBetween(user.getTransplantDate(), photo.getTakenAt());
+
+        int days = daysRaw != null ? daysRaw : 0;
+        int months = monthsRaw != null ? monthsRaw : 0;
+
         String languageInstruction = "tr".equalsIgnoreCase(language)
                 ? "TÜRKÇE cevap ver."
                 : "Respond in ENGLISH.";
@@ -301,9 +306,9 @@ public class ClaudeService {
                         }
                         """,
                 user.getTransplantDate(),
-                photo.getDaysSinceTransplant(),
-                photo.getMonthsSinceTransplant(),
-                user.getTotalGrafts(),
+                days,
+                months,
+                user.getTotalGrafts() != null ? user.getTotalGrafts() : 0,
                 user.getMethod(),
                 user.getZones(),
                 user.getMedications(),

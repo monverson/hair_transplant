@@ -6,14 +6,11 @@ import com.hairtrack.transformation.entity.User;
 import com.hairtrack.transformation.repository.AnalysisRepository;
 import com.hairtrack.transformation.repository.PhotoRepository;
 import com.hairtrack.transformation.repository.UserRepository;
+import com.hairtrack.transformation.util.DateUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.core.ResponseBytes;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -39,9 +36,10 @@ public class AnalysisService {
 
         User user = photo.getUser();
         String photoBase64 = storageService.getPhotoAsBase64(photo.getStorageUrl());
-
-        // Default to "en" if not provided
         String lang = (language != null && !language.isBlank()) ? language : "en";
+
+        // Dinamik hesaplama
+        Integer monthsPostOp = DateUtil.monthsBetween(user.getTransplantDate(), photo.getTakenAt());
 
         ClaudeService.AnalysisResult result = claudeService.analyzePhoto(photo, user, photoBase64, lang);
 
@@ -56,7 +54,7 @@ public class AnalysisService {
                 .stageAssessment(result.getStageAssessment())
                 .recommendation(result.getRecommendation())
                 .rawAnalysis(result.getRawAnalysis())
-                .monthsPostOp(photo.getMonthsSinceTransplant())
+                .monthsPostOp(monthsPostOp)
                 .build();
 
         Analysis saved = analysisRepository.save(analysis);
