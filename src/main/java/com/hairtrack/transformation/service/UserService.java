@@ -2,7 +2,9 @@ package com.hairtrack.transformation.service;
 
 import com.hairtrack.transformation.dto.UserProfileRequest;
 import com.hairtrack.transformation.dto.UserProfileResponse;
+import com.hairtrack.transformation.entity.Notification;
 import com.hairtrack.transformation.entity.User;
+import com.hairtrack.transformation.repository.NotificationRepository;
 import com.hairtrack.transformation.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +20,7 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final NotificationRepository notificationRepository;
 
     public UserProfileResponse getProfile(UUID userId) {
         User user = userRepository.findById(userId)
@@ -28,6 +31,18 @@ public class UserService {
     public UserProfileResponse updateProfile(UUID userId, UserProfileRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // transplantDate değişiyorsa eski milestone notification'larını sil
+        boolean transplantDateChanged = request.getTransplantDate() != null
+                && !request.getTransplantDate().equals(user.getTransplantDate());
+
+        if (transplantDateChanged) {
+            int deleted = notificationRepository.deleteByUserIdAndType(
+                    userId,
+                    Notification.NotificationType.MILESTONE
+            );
+            log.info("Deleted {} old milestone notifications for user {}", deleted, userId);
+        }
 
         // Sadece null olmayan field'ları güncelle (partial update)
         if (request.getName() != null) user.setName(request.getName());
