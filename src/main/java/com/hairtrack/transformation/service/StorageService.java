@@ -116,4 +116,21 @@ public class StorageService {
         }
         return String.format("users/%s/%s%s", userId, UUID.randomUUID(), extension);
     }
+
+    public String getPhotoAsBase64(String key) {
+        try {
+            software.amazon.awssdk.services.s3.model.GetObjectRequest request =
+                    software.amazon.awssdk.services.s3.model.GetObjectRequest.builder()
+                            .bucket(bucket)
+                            .key(key)
+                            .build();
+
+            software.amazon.awssdk.core.ResponseBytes<?> response = s3Client.getObjectAsBytes(request);
+            byte[] bytes = response.asByteArray();
+            return java.util.Base64.getEncoder().encodeToString(bytes);
+        } catch (Exception e) {
+            log.error("Failed to fetch photo as base64", e);
+            throw new RuntimeException("Photo fetch failed: " + e.getMessage(), e);
+        }
+    }
 }

@@ -1,11 +1,18 @@
 package com.hairtrack.transformation.service;
 
-import com.hairtrack.transformation.dto.AnalysisRequest;
-import com.hairtrack.transformation.dto.AnalysisResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hairtrack.transformation.entity.Analysis;
+import com.hairtrack.transformation.entity.Photo;
+import com.hairtrack.transformation.entity.User;
+import lombok.Builder;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -18,35 +25,35 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ClaudeService {
 
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private final StorageService storageService;
+    @Value("${claude.api.key}")
+    private String apiKey;
+    @Value("${claude.api.url}")
+    private String apiUrl;
+    @Value("${claude.api.model}")
+    private String model;
+    @Value("${claude.api.version}")
+    private String apiVersion;
     @Value("${claude.mock.enabled:false}")
     private boolean mockEnabled;
 
-    @Value("${claude.api.key}")
-    private String apiKey;
+    public AnalysisResult analyzePhoto(Photo photo, User user, String photoBase64, String language) {
+        log.info("Analyzing photo {} for user {} in {}", photo.getId(), user.getId(), language);
 
-    @Value("${claude.api.url}")
-    private String apiUrl;
-
-    @Value("${claude.api.model}")
-    private String model;
-
-    @Value("${claude.api.version}")
-    private String apiVersion;
-
-    private final RestTemplate restTemplate = new RestTemplate();
-
-    public AnalysisResponse analyzePhoto(AnalysisRequest request) {
-        log.info("Analyzing photo for user: {}", request.getUserId());
-
-        // MOCK MODE - API çağırmadan sahte cevap döndür
         if (mockEnabled) {
-            log.info("Mock mode enabled - returning fake response");
-            return buildMockResponse(request);
+            log.info("Mock mode enabled - returning fake analysis");
+            return buildMockAnalysis(photo, language);
         }
 
-        String prompt = buildPrompt(request);
+        return callClaudeApi(photo, user, photoBase64, language);
+    }
 
-        // Claude API request body
+    private AnalysisResult callClaudeApi(Photo photo, User user, String photoBase64,String language) {
+        String prompt = buildPrompt(photo, user,language);
+
         Map<String, Object> body = new HashMap<>();
         body.put("model", model);
         body.put("max_tokens", 1500);
@@ -54,7 +61,7 @@ public class ClaudeService {
         Map<String, Object> imageSource = new HashMap<>();
         imageSource.put("type", "base64");
         imageSource.put("media_type", "image/jpeg");
-        imageSource.put("data", request.getPhotoBase64());
+        imageSource.put("data", photoBase64);
 
         Map<String, Object> imageContent = new HashMap<>();
         imageContent.put("type", "image");
@@ -70,7 +77,6 @@ public class ClaudeService {
 
         body.put("messages", List.of(message));
 
-        // Headers
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("x-api-key", apiKey);
@@ -82,44 +88,230 @@ public class ClaudeService {
             Map response = restTemplate.postForObject(apiUrl, entity, Map.class);
             String analysisText = extractText(response);
 
-            return new AnalysisResponse(
-                    7.5, // şimdilik hardcoded, sonra parse edeceğiz
-                    "Normal for " + request.getMonthsPostOp() + " months",
-                    "active",
-                    "Minoxidil kullanmaya devam et",
-                    analysisText
-            );
+            // JSON parse et
+            return parseClaudeResponse(analysisText);
+
         } catch (Exception e) {
             log.error("Claude API error", e);
-            throw new RuntimeException("Analiz yapılamadı: " + e.getMessage());
+            throw new RuntimeException("Analysis failed: " + e.getMessage(), e);
         }
     }
 
-    private String buildPrompt(AnalysisRequest request) {
+    private AnalysisResult parseClaudeResponse(String jsonText) {
+        try {
+            // Claude bazen markdown code block içinde döner (```json ... ```), temizle
+            String cleaned = jsonText.trim();
+            if (cleaned.startsWith("```json")) {
+                cleaned = cleaned.substring(7);
+            } else if (cleaned.startsWith("```")) {
+                cleaned = cleaned.substring(3);
+            }
+            if (cleaned.endsWith("```")) {
+                cleaned = cleaned.substring(0, cleaned.length() - 3);
+            }
+            cleaned = cleaned.trim();
+
+            JsonNode root = objectMapper.readTree(cleaned);
+
+            return AnalysisResult.builder()
+                    .densityScore(root.get("densityScore").asDouble())
+                    .hairlineScore(root.has("hairlineScore") ? root.get("hairlineScore").asDouble() : null)
+                    .crownScore(root.has("crownScore") ? root.get("crownScore").asDouble() : null)
+                    .templeScore(root.has("templeScore") ? root.get("templeScore").asDouble() : null)
+                    .shockLossStatus(Analysis.ShockLossStatus.valueOf(root.get("shockLossStatus").asText()))
+                    .stageAssessment(root.get("stageAssessment").asText())
+                    .recommendation(root.get("recommendation").asText())
+                    .rawAnalysis(root.get("rawAnalysis").asText())
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to parse Claude response: {}", jsonText, e);
+            // Fallback: parse edemezsek raw text'i recommendation olarak ver
+            return AnalysisResult.builder()
+                    .densityScore(0.0)
+                    .stageAssessment("Parse error - check raw analysis")
+                    .shockLossStatus(Analysis.ShockLossStatus.NONE)
+                    .recommendation("Analiz parse edilemedi, ham metin: " + jsonText.substring(0, Math.min(200, jsonText.length())))
+                    .rawAnalysis(jsonText)
+                    .build();
+        }
+    }
+
+    private AnalysisResult buildMockAnalysis(Photo photo, String language) {
+        Integer months = photo.getMonthsSinceTransplant() != null ? photo.getMonthsSinceTransplant() : 0;
+        Integer days = photo.getDaysSinceTransplant() != null ? photo.getDaysSinceTransplant() : 0;
+
+        boolean isTurkish = "tr".equalsIgnoreCase(language);
+
+        // 0-14 gün: healing
+        if (days <= 14) {
+            return AnalysisResult.builder()
+                    .densityScore(8.5)
+                    .hairlineScore(9.0)
+                    .crownScore(8.0)
+                    .templeScore(8.5)
+                    .stageAssessment(isTurkish
+                            ? "İyileşme dönemi - " + days + ". gün"
+                            : "Healing phase - day " + days)
+                    .shockLossStatus(Analysis.ShockLossStatus.NONE)
+                    .recommendation(isTurkish
+                            ? (days <= 7
+                            ? "Kabuklar oluşuyor, sakın kaşıma. İlk hafta kritik."
+                            : "Kabuklar dökülmeye başladı, bu normal.")
+                            : (days <= 7
+                            ? "Scabs are forming, do not scratch. First week is critical."
+                            : "Scabs are starting to fall off, this is normal."))
+                    .rawAnalysis(isTurkish
+                            ? "İlk 14 gün healing dönemi. Tüm greftler yerleşmiş, kabuklar normal süreçte."
+                            : "First 14 days are the healing phase. All grafts placed, scabs in normal process.")
+                    .build();
+        }
+
+        // 1. ay: shock loss başlangıcı
+        if (months <= 1) {
+            return AnalysisResult.builder()
+                    .densityScore(4.5)
+                    .hairlineScore(5.0)
+                    .crownScore(4.0)
+                    .templeScore(4.5)
+                    .stageAssessment(isTurkish
+                            ? "Normal - " + months + ". ay, shock loss aktif"
+                            : "Normal for " + months + " months - shock loss active")
+                    .shockLossStatus(Analysis.ShockLossStatus.ACTIVE)
+                    .recommendation(isTurkish
+                            ? "Shock loss başladı, panikleme. Minoxidil'e devam et."
+                            : "Shock loss started, do not panic. Continue minoxidil.")
+                    .rawAnalysis(isTurkish
+                            ? "Shock loss aktif. Ektirilen saçlar dökülüyor, bu beklenen bir durum. 3. aydan sonra büyüme başlayacak."
+                            : "Shock loss is active. Transplanted hair is shedding, this is expected. Growth will start after month 3.")
+                    .build();
+        }
+
+        // 2-3. ay: peak
+        if (months <= 3) {
+            return AnalysisResult.builder()
+                    .densityScore(5.0)
+                    .hairlineScore(5.5)
+                    .crownScore(4.5)
+                    .templeScore(5.0)
+                    .stageAssessment(isTurkish
+                            ? "Normal - " + months + ". ay, shock loss zirvede"
+                            : "Normal for " + months + " months - shock loss peak")
+                    .shockLossStatus(Analysis.ShockLossStatus.ACTIVE)
+                    .recommendation(isTurkish
+                            ? "En zor dönem. 4. aydan itibaren büyüme görülecek."
+                            : "Hardest phase. Growth will be visible from month 4.")
+                    .rawAnalysis(isTurkish
+                            ? "Shock loss devam ediyor. En kötü görüntü dönemi."
+                            : "Shock loss continues. Worst appearance phase.")
+                    .build();
+        }
+
+        // 4-6. ay
+        if (months <= 6) {
+            return AnalysisResult.builder()
+                    .densityScore(6.5)
+                    .hairlineScore(7.5)
+                    .crownScore(5.5)
+                    .templeScore(7.0)
+                    .stageAssessment(isTurkish
+                            ? "Normal - " + months + ". ay, büyüme başladı"
+                            : "Normal for " + months + " months - growth started")
+                    .shockLossStatus(Analysis.ShockLossStatus.RESOLVING)
+                    .recommendation(isTurkish
+                            ? "İyi gidiyorsun, hairline kapanmaya başladı."
+                            : "Going well, hairline starting to fill in.")
+                    .rawAnalysis(isTurkish
+                            ? "Ektirilen greftlerin %40-50'si çıkmış durumda. Hairline netleşiyor, crown hâlâ seyrek."
+                            : "40-50% of transplanted grafts have emerged. Hairline becoming clearer, crown still sparse.")
+                    .build();
+        }
+
+        // 7-12. ay
+        if (months <= 12) {
+            return AnalysisResult.builder()
+                    .densityScore(7.8)
+                    .hairlineScore(8.5)
+                    .crownScore(7.0)
+                    .templeScore(8.0)
+                    .stageAssessment(isTurkish
+                            ? "Normal - " + months + ". ay"
+                            : "Normal for " + months + " months")
+                    .shockLossStatus(Analysis.ShockLossStatus.COMPLETED)
+                    .recommendation(isTurkish
+                            ? "Mükemmel ilerleme. 12. ayda final değerlendirme yapalım."
+                            : "Excellent progress. Let's do final evaluation at month 12.")
+                    .rawAnalysis(isTurkish
+                            ? "Final görüntüye %70-80 ulaşılmış. Crown'da hâlâ doluş bekleniyor."
+                            : "70-80% of final appearance reached. Still expecting fill-in at crown.")
+                    .build();
+        }
+
+        // 12+ ay: final
+        return AnalysisResult.builder()
+                .densityScore(8.5)
+                .hairlineScore(9.0)
+                .crownScore(7.5)
+                .templeScore(8.5)
+                .stageAssessment(isTurkish
+                        ? "Final sonuç - " + months + ". ay"
+                        : "Final result - " + months + " months")
+                .shockLossStatus(Analysis.ShockLossStatus.COMPLETED)
+                .recommendation(isTurkish
+                        ? "Final sonuç. Mevcut saçlarını korumak için finasteride değerlendir."
+                        : "Final result. Consider finasteride to preserve existing hair.")
+                .rawAnalysis(isTurkish
+                        ? "Final sonuç. Greft tutunum oranı yüksek görünüyor."
+                        : "Final result. Graft retention rate appears high.")
+                .build();
+    }
+
+    private String buildPrompt(Photo photo, User user, String language) {
+        String languageInstruction = "tr".equalsIgnoreCase(language)
+                ? "TÜRKÇE cevap ver."
+                : "Respond in ENGLISH.";
+
         return String.format("""
-            Sen bir saç ekimi recovery analistisin. Bu fotoğrafı analiz et.
-
-            KULLANICI BİLGİSİ:
-            - Ekim sonrası ay: %d
-            - Toplam graft: %d
-            - Yöntem: %s
-            - Bölgeler: %s
-            - İlaçlar: %s
-
-            Analiz et ve şu bilgileri ver:
-            1. Density score (0-10)
-            2. Bu aşama için durum (ahead/normal/behind)
-            3. Shock loss durumu (active/resolving/completed/none)
-            4. Bir tane actionable öneri
-            5. Kullanıcıya psikolojik destek mesajı
-
-            Kısa ve net cevap ver. Türkçe yaz.
-            """,
-                request.getMonthsPostOp(),
-                request.getTotalGrafts(),
-                request.getMethod(),
-                request.getZones(),
-                request.getMedications()
+                        You are a hair transplant recovery analyst. Analyze this photo.
+                        
+                        USER CONTEXT:
+                        - Transplant date: %s
+                        - Days post-op: %d
+                        - Months post-op: %d
+                        - Total grafts: %d
+                        - Method: %s
+                        - Zones: %s
+                        - Medications: %s
+                        - Previous session: %s
+                        
+                        PHOTO ANGLE: %s
+                        
+                        %s
+                        
+                        Respond ONLY in the following JSON format, nothing else:
+                        
+                        {
+                          "densityScore": 0-10 decimal,
+                          "hairlineScore": 0-10 decimal,
+                          "crownScore": 0-10 decimal,
+                          "templeScore": 0-10 decimal,
+                          "shockLossStatus": "NONE" or "ACTIVE" or "RESOLVING" or "COMPLETED",
+                          "stageAssessment": "short status for this stage",
+                          "recommendation": "one actionable recommendation",
+                          "rawAnalysis": "detailed explanation (2-3 sentences)"
+                        }
+                        """,
+                user.getTransplantDate(),
+                photo.getDaysSinceTransplant(),
+                photo.getMonthsSinceTransplant(),
+                user.getTotalGrafts(),
+                user.getMethod(),
+                user.getZones(),
+                user.getMedications(),
+                user.getPreviousSession() != null && user.getPreviousSession()
+                        ? "Yes, " + user.getPreviousGrafts() + " grafts"
+                        : "No",
+                photo.getAngle(),
+                languageInstruction
         );
     }
 
@@ -132,52 +324,16 @@ public class ClaudeService {
         return "No response";
     }
 
-
-    private AnalysisResponse buildMockResponse(AnalysisRequest request) {
-        int months = request.getMonthsPostOp();
-
-        // Aşamaya göre farklı mock data
-        if (months <= 1) {
-            return new AnalysisResponse(
-                    4.5,
-                    "Normal for " + months + " months - shock loss başlıyor",
-                    "active",
-                    "Bu en zor dönem, panikleme. Minoxidil'e devam et.",
-                    "1. ay analizi: Shock loss aktif. Saçların dökülüyor, bu beklenen bir durum. " +
-                            "3. aydan sonra büyüme başlayacak. Şu an aynaya günde 5 kere bakmayı bırak."
-            );
-        } else if (months <= 3) {
-            return new AnalysisResponse(
-                    5.0,
-                    "Normal for " + months + " months - shock loss peak",
-                    "active",
-                    "Bu aşamayı sabırla geç, sonuçlar 6. aydan sonra netleşecek.",
-                    "3. ay analizi: Shock loss devam ediyor. En kötü görüntü dönemi. Saçların seyrek görünüyor."
-            );
-        } else if (months <= 6) {
-            return new AnalysisResponse(
-                    6.5,
-                    "Normal for " + months + " months - büyüme başladı",
-                    "resolving",
-                    "İyi gidiyorsun, hairline kapanmaya başladı.",
-                    "6. ay analizi: Ektirilen greftlerin %40-50'si çıkmış durumda. Hairline netleşiyor, crown hâlâ seyrek."
-            );
-        } else if (months <= 12) {
-            return new AnalysisResponse(
-                    7.8,
-                    "Normal for " + months + " months",
-                    "completed",
-                    "Mükemmel ilerleme. 12. ayda final değerlendirme yapalım.",
-                    "9. ay analizi: %70-80 final görüntüye ulaşılmış. Crown'da hâlâ doluş bekleniyor."
-            );
-        } else {
-            return new AnalysisResponse(
-                    8.5,
-                    "Final result - " + months + " months",
-                    "completed",
-                    "Final sonuç görünüyor. Mevcut saçlarını koruman için finasteride değerlendir.",
-                    "12+ ay analizi: Final sonuç. Greft tutunum oranı yüksek görünüyor."
-            );
-        }
+    @Data
+    @Builder
+    public static class AnalysisResult {
+        private Double densityScore;
+        private Double hairlineScore;
+        private Double crownScore;
+        private Double templeScore;
+        private Analysis.ShockLossStatus shockLossStatus;
+        private String stageAssessment;
+        private String recommendation;
+        private String rawAnalysis;
     }
 }
