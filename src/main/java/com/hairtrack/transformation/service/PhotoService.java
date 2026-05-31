@@ -2,6 +2,8 @@ package com.hairtrack.transformation.service;
 
 import com.hairtrack.transformation.entity.Photo;
 import com.hairtrack.transformation.entity.User;
+import com.hairtrack.transformation.exception.AccessDeniedException;
+import com.hairtrack.transformation.exception.ResourceNotFoundException;
 import com.hairtrack.transformation.repository.PhotoRepository;
 import com.hairtrack.transformation.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +25,7 @@ public class PhotoService {
 
     public Photo uploadPhoto(UUID userId, MultipartFile file, Photo.PhotoAngle angle) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
 
         String storageKey = storageService.uploadPhoto(file, userId);
 
@@ -44,10 +46,10 @@ public class PhotoService {
 
     public Photo getPhotoById(UUID photoId, UUID userId) {
         Photo photo = photoRepository.findById(photoId)
-                .orElseThrow(() -> new RuntimeException("Photo not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Photo not found: " + photoId));
 
         if (!photo.getUser().getId().equals(userId)) {
-            throw new RuntimeException("Access denied");
+            throw new AccessDeniedException("You don't have access to this photo");
         }
 
         return photo;

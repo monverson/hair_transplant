@@ -4,6 +4,7 @@ import com.hairtrack.transformation.dto.PhotoResponse;
 import com.hairtrack.transformation.dto.TimelineResponse;
 import com.hairtrack.transformation.entity.Photo;
 import com.hairtrack.transformation.entity.User;
+import com.hairtrack.transformation.exception.ResourceNotFoundException;
 import com.hairtrack.transformation.repository.PhotoRepository;
 import com.hairtrack.transformation.repository.UserRepository;
 import com.hairtrack.transformation.util.DateUtil;
@@ -26,7 +27,8 @@ public class TimelineService {
 
     public TimelineResponse getTimeline(UUID userId, String language) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
 
         List<Photo> photos = photoRepository.findByUserIdOrderByTakenAtDesc(userId);
         LocalDate transplantDate = user.getTransplantDate();

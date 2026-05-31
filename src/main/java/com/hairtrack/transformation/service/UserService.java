@@ -4,6 +4,7 @@ import com.hairtrack.transformation.dto.UserProfileRequest;
 import com.hairtrack.transformation.dto.UserProfileResponse;
 import com.hairtrack.transformation.entity.Notification;
 import com.hairtrack.transformation.entity.User;
+import com.hairtrack.transformation.exception.ResourceNotFoundException;
 import com.hairtrack.transformation.repository.NotificationRepository;
 import com.hairtrack.transformation.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,13 +25,13 @@ public class UserService {
 
     public UserProfileResponse getProfile(UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
         return toResponse(user);
     }
 
     public UserProfileResponse updateProfile(UUID userId, UserProfileRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
 
         // transplantDate değişiyorsa eski milestone notification'larını sil
         boolean transplantDateChanged = request.getTransplantDate() != null

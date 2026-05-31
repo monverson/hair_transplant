@@ -4,6 +4,8 @@ import com.hairtrack.transformation.dto.AuthResponse;
 import com.hairtrack.transformation.dto.LoginRequest;
 import com.hairtrack.transformation.dto.RegisterRequest;
 import com.hairtrack.transformation.entity.User;
+import com.hairtrack.transformation.exception.ConflictException;
+import com.hairtrack.transformation.exception.ResourceNotFoundException;
 import com.hairtrack.transformation.repository.UserRepository;
 import com.hairtrack.transformation.security.JwtService;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +25,7 @@ public class AuthService {
 
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email already registered");
+            throw new ConflictException("Email already registered");
         }
 
         User user = User.builder()
@@ -51,7 +53,7 @@ public class AuthService {
         );
 
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         String token = jwtService.generateToken(user.getEmail());
 

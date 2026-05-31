@@ -2,6 +2,8 @@ package com.hairtrack.transformation.service;
 
 import com.hairtrack.transformation.entity.Notification;
 import com.hairtrack.transformation.entity.User;
+import com.hairtrack.transformation.exception.AccessDeniedException;
+import com.hairtrack.transformation.exception.ResourceNotFoundException;
 import com.hairtrack.transformation.repository.NotificationRepository;
 import com.hairtrack.transformation.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +32,7 @@ public class NotificationService {
     @Transactional
     public List<Notification> checkAndCreateMilestones(UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
 
         if (user.getTransplantDate() == null) {
             log.info("User {} has no transplant date, skipping milestones", userId);
@@ -80,10 +82,10 @@ public class NotificationService {
 
     public Notification markAsRead(UUID notificationId, UUID userId) {
         Notification notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> new RuntimeException("Notification not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Notification not found" + userId));
 
         if (!notification.getUser().getId().equals(userId)) {
-            throw new RuntimeException("Access denied");
+            throw new AccessDeniedException("You don't have access");
         }
 
         notification.setRead(true);

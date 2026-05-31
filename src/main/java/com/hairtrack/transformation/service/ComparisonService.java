@@ -3,6 +3,8 @@ package com.hairtrack.transformation.service;
 import com.hairtrack.transformation.dto.ComparisonResponse;
 import com.hairtrack.transformation.entity.Analysis;
 import com.hairtrack.transformation.entity.Photo;
+import com.hairtrack.transformation.exception.AccessDeniedException;
+import com.hairtrack.transformation.exception.ResourceNotFoundException;
 import com.hairtrack.transformation.repository.AnalysisRepository;
 import com.hairtrack.transformation.repository.PhotoRepository;
 import com.hairtrack.transformation.util.DateUtil;
@@ -48,10 +50,11 @@ public class ComparisonService {
 
     private Photo getPhoto(UUID photoId, UUID userId) {
         Photo photo = photoRepository.findById(photoId)
-                .orElseThrow(() -> new RuntimeException("Photo not found: " + photoId));
+                .orElseThrow(() -> new ResourceNotFoundException("Photo not found:" + photoId));
+
 
         if (!photo.getUser().getId().equals(userId)) {
-            throw new RuntimeException("Access denied");
+            throw new AccessDeniedException("You don't have access to this photo");
         }
 
         return photo;
