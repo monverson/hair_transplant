@@ -6,6 +6,7 @@ import com.hairtrack.transformation.entity.Analysis;
 import com.hairtrack.transformation.entity.User;
 import com.hairtrack.transformation.repository.UserRepository;
 import com.hairtrack.transformation.service.AnalysisService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -25,15 +26,11 @@ public class AnalysisController {
 
     @PostMapping
     public ResponseEntity<AnalysisResponse> analyze(
-            @RequestBody AnalysisRequest request,
+            @Valid @RequestBody AnalysisRequest request,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
         UUID userId = getUserId(userDetails);
-        Analysis analysis = analysisService.analyzePhoto(
-                request.getPhotoId(),
-                userId,
-                request.getLanguage()
-        );
+        Analysis analysis = analysisService.analyzePhoto(request.getPhotoId(), userId, request.getLanguage());
         return ResponseEntity.ok(toResponse(analysis));
     }
 

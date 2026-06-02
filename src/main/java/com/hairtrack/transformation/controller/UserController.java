@@ -5,6 +5,7 @@ import com.hairtrack.transformation.dto.UserProfileResponse;
 import com.hairtrack.transformation.entity.User;
 import com.hairtrack.transformation.repository.UserRepository;
 import com.hairtrack.transformation.service.UserService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -31,7 +32,7 @@ public class UserController {
 
     @PatchMapping("/me")
     public ResponseEntity<UserProfileResponse> updateMyProfile(
-            @RequestBody UserProfileRequest request,
+            @Valid @RequestBody UserProfileRequest request,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
         UUID userId = getUserId(userDetails);

@@ -5,11 +5,15 @@ import com.hairtrack.transformation.dto.ComparisonResponse;
 import com.hairtrack.transformation.entity.User;
 import com.hairtrack.transformation.repository.UserRepository;
 import com.hairtrack.transformation.service.ComparisonService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
@@ -23,7 +27,7 @@ public class ComparisonController {
 
     @PostMapping
     public ResponseEntity<ComparisonResponse> compare(
-            @RequestBody ComparisonRequest request,
+            @Valid @RequestBody ComparisonRequest request,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
         UUID userId = getUserId(userDetails);
